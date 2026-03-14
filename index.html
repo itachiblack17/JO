@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Frontend Skills — Learning Hub</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <nav class="navbar">
+      <span class="logo">FrontendHub</span>
+      <ul class="nav-links">
+        <li><a href="#html-section">HTML</a></li>
+        <li><a href="#css-section">CSS</a></li>
+        <li><a href="#js-section">JavaScript</a></li>
+        <li><a href="#projects-section">Projects</a></li>
+      </ul>
+      <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode">🌙</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Hero -->
+    <section class="hero">
+      <h1>Learn Frontend Skills</h1>
+      <p>Master HTML, CSS, and JavaScript through hands-on examples.</p>
+      <div class="progress-tracker">
+        <span>Your Progress</span>
+        <div class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <span id="progressLabel">0 / 9 completed</span>
+      </div>
+    </section>
+
+    <!-- HTML Section -->
+    <section id="html-section" class="skill-section">
+      <h2><span class="badge badge-html">HTML</span> Structure &amp; Semantics</h2>
+      <div class="cards">
+
+        <article class="card" data-skill="html-1">
+          <h3>Semantic Elements</h3>
+          <p>Use elements like <code>&lt;article&gt;</code>, <code>&lt;section&gt;</code>, <code>&lt;nav&gt;</code>, and <code>&lt;aside&gt;</code> to give meaning to your markup.</p>
+          <div class="demo demo-html">
+            <header class="demo-header">Demo Header</header>
+            <div class="demo-layout">
+              <aside class="demo-aside">Sidebar</aside>
+              <article class="demo-article">Main Content</article>
+            </div>
+            <footer class="demo-footer">Demo Footer</footer>
+          </div>
+          <button class="complete-btn" data-skill="html-1">Mark Complete</button>
+        </article>
+
+        <article class="card" data-skill="html-2">
+          <h3>Forms &amp; Validation</h3>
+          <p>HTML5 provides built-in validation via attributes like <code>required</code>, <code>type</code>, <code>pattern</code>, and <code>minlength</code>.</p>
+          <form class="demo-form" novalidate id="demoForm">
+            <label for="email">Email</label>
+            <input type="email" id="email" placeholder="you@example.com" required />
+            <label for="password">Password (min 8 chars)</label>
+            <input type="password" id="password" minlength="8" placeholder="••••••••" required />
+            <button type="submit" class="btn-primary">Submit</button>
+            <p class="form-msg" id="formMsg"></p>
+          </form>
+          <button class="complete-btn" data-skill="html-2">Mark Complete</button>
+        </article>
+
+        <article class="card" data-skill="html-3">
+          <h3>Accessibility (a11y)</h3>
+          <p>ARIA roles, labels, and keyboard navigation make your UI usable for everyone.</p>
+          <div class="demo-a11y">
+            <button class="btn-a11y" aria-pressed="false" id="a11yBtn">Toggle (aria-pressed)</button>
+            <p role="status" id="a11yStatus">State: OFF</p>
+          </div>
+          <button class="complete-btn" data-skill="html-3">Mark Complete</button>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- CSS Section -->
+    <section id="css-section" class="skill-section">
+      <h2><span class="badge badge-css">CSS</span> Styling &amp; Layout</h2>
+      <div class="cards">
+
+        <article class="card" data-skill="css-1">
+          <h3>Flexbox</h3>
+          <p>Flexbox makes one-dimensional layouts easy — align and distribute items along a single axis.</p>
+          <div class="demo-flex">
+            <div class="flex-box">1</div>
+            <div class="flex-box">2</div>
+            <div class="flex-box">3</div>
+            <div class="flex-box">4</div>
+          </div>
+          <div class="flex-controls">
+            <label>justify-content:
+              <select id="justifySelect">
+                <option value="flex-start">flex-start</option>
+                <option value="center" selected>center</option>
+                <option value="flex-end">flex-end</option>
+                <option value="space-between">space-between</option>
+                <option value="space-around">space-around</option>
+              </select>
+            </label>
+          </div>
+          <button class="complete-btn" data-skill="css-1">Mark Complete</button>
+        </article>
+
+        <article class="card" data-skill="css-2">
+          <h3>CSS Grid</h3>
+          <p>Grid gives you two-dimensional control over layout with rows and columns.</p>
+          <div class="demo-grid" id="demoGrid">
+            <div class="grid-item grid-header">Header</div>
+            <div class="grid-item grid-sidebar">Sidebar</div>
+            <div class="grid-item grid-main">Main</div>
+            <div class="grid-item grid-footer">Footer</div>
+          </div>
+          <button class="complete-btn" data-skill="css-2">Mark Complete</button>
+        </article>
+
+        <article class="card" data-skill="css-3">
+          <h3>CSS Animations</h3>
+          <p>Bring your UI to life with keyframes and transitions.</p>
+          <div class="demo-anim">
+            <div class="orbit-container">
+              <div class="planet"></div>
+              <div class="satellite"></div>
+            </div>
+          </div>
+          <button class="complete-btn" data-skill="css-3">Mark Complete</button>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- JavaScript Section -->
+    <section id="js-section" class="skill-section">
+      <h2><span class="badge badge-js">JS</span> Interactivity &amp; Logic</h2>
+      <div class="cards">
+
+        <article class="card" data-skill="js-1">
+          <h3>DOM Manipulation</h3>
+          <p>Query, create, and modify elements dynamically using the DOM API.</p>
+          <div class="demo-dom">
+            <ul id="todoList"></ul>
+            <div class="todo-input">
+              <input type="text" id="todoInput" placeholder="Add a task…" />
+              <button class="btn-primary" id="todoAdd">Add</button>
+            </div>
+          </div>
+          <button class="complete-btn" data-skill="js-1">Mark Complete</button>
+        </article>
+
+        <article class="card" data-skill="js-2">
+          <h3>Fetch &amp; Async/Await</h3>
+          <p>Load data from APIs asynchronously without blocking the UI.</p>
+          <div class="demo-fetch">
+            <button class="btn-primary" id="fetchBtn">Fetch a Random Joke</button>
+            <div class="fetch-result" id="fetchResult">Click the button to load a joke.</div>
+          </div>
+          <button class="complete-btn" data-skill="js-2">Mark Complete</button>
+        </article>
+
+        <article class="card" data-skill="js-3">
+          <h3>Local Storage</h3>
+          <p>Persist data in the browser across page reloads using <code>localStorage</code>.</p>
+          <div class="demo-storage">
+            <label for="storageInput">Save a note:</label>
+            <textarea id="storageInput" rows="3" placeholder="Type something — it's auto-saved!"></textarea>
+            <p class="storage-info">Last saved: <span id="lastSaved">never</span></p>
+          </div>
+          <button class="complete-btn" data-skill="js-3">Mark Complete</button>
+        </article>
+
+      </div>
+    </section>
+
+    <!-- Mini Projects -->
+    <section id="projects-section" class="skill-section">
+      <h2><span class="badge badge-project">★</span> Mini Projects</h2>
+      <div class="cards">
+
+        <article class="card" data-skill="proj-1">
+          <h3>Color Palette Generator</h3>
+          <p>Click a swatch to copy its hex value to the clipboard.</p>
+          <div class="palette" id="palette"></div>
+          <button class="btn-primary" id="genPalette">Generate New Palette</button>
+          <p id="copyMsg"></p>
+          <button class="complete-btn" data-skill="proj-1">Mark Complete</button>
+        </article>
+
+        <article class="card" data-skill="proj-2">
+          <h3>Countdown Timer</h3>
+          <p>Set a duration and watch the countdown.</p>
+          <div class="timer-demo">
+            <div class="timer-display" id="timerDisplay">00:00</div>
+            <div class="timer-controls">
+              <input type="number" id="timerMinutes" min="0" max="60" value="1" />
+              <span>min</span>
+              <button class="btn-primary" id="timerStart">Start</button>
+              <button id="timerReset">Reset</button>
+            </div>
+          </div>
+          <button class="complete-btn" data-skill="proj-2">Mark Complete</button>
+        </article>
+
+        <article class="card" data-skill="proj-3">
+          <h3>Responsive Image Gallery</h3>
+          <p>A CSS-grid gallery with a lightbox on click.</p>
+          <div class="gallery" id="gallery"></div>
+          <div class="lightbox hidden" id="lightbox">
+            <button id="lightboxClose" aria-label="Close">✕</button>
+            <img id="lightboxImg" src="" alt="Enlarged view" />
+          </div>
+          <button class="complete-btn" data-skill="proj-3">Mark Complete</button>
+        </article>
+
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>Built with plain HTML, CSS &amp; JavaScript — no frameworks needed.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

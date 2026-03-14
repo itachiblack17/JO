@@ -211,6 +211,7 @@ body {
 .dot-testing   { color: var(--c-testing); }
 .dot-system    { color: var(--c-system); }
 .dot-projects  { color: var(--c-projects); }
+.dot-commerce  { color: #0f766e; }
 
 /* ---------- Main Content ---------- */
 .main {

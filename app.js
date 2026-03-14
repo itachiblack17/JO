@@ -1110,6 +1110,318 @@ spec:
       },
     ],
   },
+
+  /* ── 9. COMMERCE & FINANCE ────────────────── */
+  {
+    id: 'commerce', label: 'Commerce & Finance', icon: '💳',
+    color: '#0f766e', dotClass: 'dot-commerce',
+    desc: 'Build shopping dashboards, carts, payments, and financial reporting.',
+    skills: [
+      {
+        id: 'tanstack-query', title: 'TanStack Query (React Query)',
+        desc: 'Server-state management: automatic caching, background refetch, optimistic updates, and pagination — eliminates most useEffect data-fetching code.',
+        lang: 'jsx',
+        code:
+`import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+// Fetch products with caching + auto-refetch
+function useProducts(filters) {
+  return useQuery({
+    queryKey: ['products', filters],   // cache key
+    queryFn: () => api.get('/products', { params: filters }),
+    staleTime: 60_000,                 // fresh for 1 min
+    select: data => data.items,        // transform response
+  });
+}
+
+// Mutation with optimistic update
+function useUpdateStock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, qty }) => api.patch(\`/products/\${id}\`, { qty }),
+    onMutate: async ({ id, qty }) => {
+      await qc.cancelQueries({ queryKey: ['products'] });
+      const prev = qc.getQueryData(['products']);
+      qc.setQueryData(['products'], old =>
+        old.map(p => p.id === id ? { ...p, qty } : p)
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      qc.setQueryData(['products'], ctx.prev); // rollback
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['products'] }),
+  });
+}`,
+      },
+      {
+        id: 'tanstack-table', title: 'TanStack Table (Data Grid)',
+        desc: 'Headless table engine for sortable, filterable, paginated, and virtualized data grids — perfect for order lists and product catalogs.',
+        lang: 'jsx',
+        code:
+`import {
+  useReactTable, getCoreRowModel,
+  getSortedRowModel, getFilteredRowModel,
+  getPaginationRowModel, flexRender,
+} from '@tanstack/react-table';
+
+const columns = [
+  { accessorKey: 'orderId',   header: 'Order #', enableSorting: true },
+  { accessorKey: 'customer',  header: 'Customer' },
+  { accessorKey: 'amount',    header: 'Amount',
+    cell: ({ getValue }) => formatVND(getValue()) },
+  { accessorKey: 'status',    header: 'Status',
+    cell: ({ getValue }) => <StatusBadge status={getValue()} /> },
+  { accessorKey: 'createdAt', header: 'Date',
+    cell: ({ getValue }) => format(new Date(getValue()), 'dd/MM/yyyy') },
+];
+
+function OrderTable({ data }) {
+  const [sorting, setSorting] = useState([]);
+  const [globalFilter, setGlobalFilter] = useState('');
+
+  const table = useReactTable({
+    data, columns,
+    state: { sorting, globalFilter },
+    onSortingChange: setSorting,
+    onGlobalFilterChange: setGlobalFilter,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+  // render table.getRowModel().rows ...
+}`,
+      },
+      {
+        id: 'react-hook-form', title: 'React Hook Form + Zod',
+        desc: 'Performant forms with minimal re-renders. Zod schema provides type-safe validation shared between client and server.',
+        lang: 'jsx',
+        code:
+`import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const ProductSchema = z.object({
+  name:     z.string().min(1).max(120),
+  price:    z.number().positive(),
+  stock:    z.number().int().min(0),
+  category: z.enum(['electronics','clothing','food']),
+  imageUrl: z.string().url().optional(),
+});
+
+function AddProductForm({ onSubmit }) {
+  const { register, handleSubmit, formState: { errors, isSubmitting } } =
+    useForm({ resolver: zodResolver(ProductSchema) });
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <input {...register('name')} placeholder="Product name" />
+      {errors.name && <span>{errors.name.message}</span>}
+
+      <input {...register('price', { valueAsNumber: true })}
+             type="number" step="0.01" />
+      {errors.price && <span>{errors.price.message}</span>}
+
+      <button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? 'Saving…' : 'Add Product'}
+      </button>
+    </form>
+  );
+}`,
+      },
+      {
+        id: 'charts', title: 'Data Visualization (Chart.js)',
+        desc: 'Render revenue trends, expense breakdowns, and KPI charts. Use Chart.js for quick wins or Recharts for React-native integration.',
+        demo: 'canvas-chart',
+      },
+      {
+        id: 'payment', title: 'Payment Integration (Stripe + VNPay)',
+        desc: 'Stripe for international cards; VNPay/MoMo for Vietnamese market. Always handle payments server-side — never trust client amounts.',
+        lang: 'js',
+        code:
+`// ── Stripe (server-side) ──────────────────────
+import Stripe from 'stripe';
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+// Create payment intent
+app.post('/api/checkout', async (req, res) => {
+  const { items } = req.body;
+  const amount = await calculateOrderTotal(items); // server-side!
+
+  const intent = await stripe.paymentIntents.create({
+    amount: Math.round(amount * 100), // cents
+    currency: 'usd',
+    metadata: { userId: req.user.sub },
+  });
+  res.json({ clientSecret: intent.client_secret });
+});
+
+// Webhook — confirm payment after Stripe event
+app.post('/webhooks/stripe',
+  express.raw({ type: 'application/json' }),
+  async (req, res) => {
+    const event = stripe.webhooks.constructEvent(
+      req.body, req.headers['stripe-signature'], process.env.WEBHOOK_SECRET
+    );
+    if (event.type === 'payment_intent.succeeded') {
+      await fulfillOrder(event.data.object.metadata.userId);
+    }
+    res.json({ received: true });
+  }
+);
+
+// ── VNPay (server-side hash) ──────────────────
+import crypto from 'crypto';
+function buildVnpayUrl({ amount, orderId, ipAddr }) {
+  const params = new URLSearchParams({
+    vnp_Version: '2.1.0', vnp_Command: 'pay',
+    vnp_TmnCode: process.env.VNPAY_TMN_CODE,
+    vnp_Amount: amount * 100,
+    vnp_TxnRef: orderId,
+    vnp_ReturnUrl: 'https://myshop.vn/payment/result',
+    vnp_IpAddr: ipAddr,
+    vnp_CreateDate: dateFormat(new Date()),
+  });
+  params.sort();
+  const signed = crypto.createHmac('sha512', process.env.VNPAY_HASH_SECRET)
+    .update(params.toString()).digest('hex');
+  params.set('vnp_SecureHash', signed);
+  return \`https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?\${params}\`;
+}`,
+      },
+      {
+        id: 'currency', title: 'Currency & Number Formatting',
+        desc: 'Use Intl.NumberFormat for locale-aware formatting. Use Decimal.js for financial arithmetic to avoid IEEE 754 floating-point errors.',
+        demo: 'currency-demo',
+      },
+      {
+        id: 'date-handling', title: 'Date & Time with date-fns',
+        desc: 'Financial periods, invoice dates, recurring billing, and timezone-safe reporting using date-fns or Temporal API.',
+        lang: 'js',
+        code:
+`import {
+  format, startOfMonth, endOfMonth,
+  eachMonthOfInterval, subMonths, isWithinInterval,
+} from 'date-fns';
+import { vi } from 'date-fns/locale';
+
+// Last 6 months revenue buckets
+function buildMonthlyRevenue(transactions) {
+  const end   = new Date();
+  const start = subMonths(end, 5);
+  const months = eachMonthOfInterval({ start, end });
+
+  return months.map(month => {
+    const from = startOfMonth(month);
+    const to   = endOfMonth(month);
+    const total = transactions
+      .filter(t => isWithinInterval(new Date(t.date), { start: from, end: to }))
+      .reduce((s, t) => s + t.amount, 0);
+    return {
+      label: format(month, 'MMM yyyy', { locale: vi }),
+      total,
+    };
+  });
+}
+
+// Format: "Thứ Hai, 14 tháng 3, 2026"
+format(new Date(), 'EEEE, d MMMM, yyyy', { locale: vi });`,
+      },
+      {
+        id: 'pdf-export', title: 'PDF & Excel Export',
+        desc: 'Generate invoices as PDF with jsPDF + autoTable. Export financial reports to .xlsx with the SheetJS library.',
+        lang: 'js',
+        code:
+`import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
+
+// ── PDF Invoice ───────────────────────────────
+function exportInvoicePdf(order) {
+  const doc = new jsPDF();
+  doc.setFontSize(20).text('INVOICE', 14, 22);
+  doc.setFontSize(11).text(\`Order: #\${order.id}\`, 14, 32);
+  doc.text(\`Date: \${format(new Date(), 'dd/MM/yyyy')}\`, 14, 39);
+
+  autoTable(doc, {
+    startY: 50,
+    head: [['Product', 'Qty', 'Unit Price', 'Total']],
+    body: order.items.map(i => [
+      i.name, i.qty,
+      formatVND(i.price),
+      formatVND(i.price * i.qty),
+    ]),
+    foot: [['', '', 'Grand Total', formatVND(order.total)]],
+  });
+
+  doc.save(\`invoice-\${order.id}.pdf\`);
+}
+
+// ── Excel Report ──────────────────────────────
+function exportTransactionsXlsx(transactions) {
+  const ws = XLSX.utils.json_to_sheet(transactions.map(t => ({
+    'Date':        format(new Date(t.date), 'dd/MM/yyyy'),
+    'Description': t.desc,
+    'Category':    t.category,
+    'Amount (VND)': t.amount,
+    'Type':         t.amount > 0 ? 'Income' : 'Expense',
+  })));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Transactions');
+  XLSX.writeFile(wb, 'financial-report.xlsx');
+}`,
+      },
+      {
+        id: 'rbac', title: 'Role-Based Access Control (RBAC)',
+        desc: 'Grant/deny UI features and API endpoints based on roles (admin, staff, viewer). Enforce on both client and server — never trust client alone.',
+        demo: 'rbac-demo',
+      },
+      {
+        id: 'optimistic-ui', title: 'Optimistic UI & UX Patterns',
+        desc: 'Update UI instantly on user action, then confirm with the server. Roll back on error. Combine with skeleton loaders and toast notifications.',
+        lang: 'jsx',
+        code:
+`// Optimistic cart add — instant feedback
+function useAddToCart() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (item) => api.post('/cart', item),
+    onMutate: async (item) => {
+      await qc.cancelQueries({ queryKey: ['cart'] });
+      const prev = qc.getQueryData(['cart']);
+      // Optimistically add item
+      qc.setQueryData(['cart'], old => ({
+        ...old,
+        items: [...(old?.items ?? []), { ...item, _optimistic: true }],
+        total: (old?.total ?? 0) + item.price * item.qty,
+      }));
+      toast.success('Added to cart!');
+      return { prev };
+    },
+    onError: (_err, _item, ctx) => {
+      qc.setQueryData(['cart'], ctx.prev);
+      toast.error('Failed to add item. Please try again.');
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['cart'] }),
+  });
+}
+
+// Skeleton loader while data is loading
+function ProductCard({ id }) {
+  const { data, isLoading } = useProduct(id);
+  if (isLoading) return (
+    <div className="skeleton-card">
+      <div className="skeleton h-40 w-full" />
+      <div className="skeleton h-4 w-3/4 mt-2" />
+      <div className="skeleton h-4 w-1/2 mt-1" />
+    </div>
+  );
+  return <RealProductCard product={data} />;
+}`,
+      },
+    ],
+  },
 ];
 
 /* ── Total skill count (exclude project items from "35") ─────── */
@@ -1414,6 +1726,95 @@ function demoHtml(type, skillId) {
         </div>
       </div>`;
 
+    case 'canvas-chart': return `
+      <div class="demo-area">
+        <div class="demo-title">Revenue vs Expenses — Last 6 Months</div>
+        <canvas id="chart-${skillId}" height="180" style="width:100%"></canvas>
+        <script>
+          (function(){
+            const ctx = document.getElementById('chart-${skillId}');
+            if (!ctx || ctx._chartInit) return;
+            ctx._chartInit = true;
+            const months = ['Oct','Nov','Dec','Jan','Feb','Mar'];
+            const revenue  = [42,58,95,67,80,74];
+            const expenses = [30,41,60,50,55,48];
+            const dark = document.documentElement.getAttribute('data-theme')==='dark';
+            const grid = dark ? '#334155' : '#e2e8f0';
+            const textC = dark ? '#94a3b8' : '#64748b';
+            // manual chart using canvas 2d
+            const W = ctx.offsetWidth || 320, H = 180;
+            ctx.width = W; ctx.height = H;
+            const g = ctx.getContext('2d');
+            const pad = { t:10, r:20, b:30, l:45 };
+            const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+            const max = 120;
+            // grid lines
+            [0,30,60,90,120].forEach(v => {
+              const y = pad.t + ch - (v/max)*ch;
+              g.strokeStyle = grid; g.lineWidth = 1;
+              g.beginPath(); g.moveTo(pad.l, y); g.lineTo(pad.l+cw, y); g.stroke();
+              g.fillStyle = textC; g.font = '10px system-ui';
+              g.fillText(v+'M', 2, y+4);
+            });
+            // bars
+            const bw = (cw/months.length)*0.35;
+            months.forEach((m,i) => {
+              const x = pad.l + (i/months.length)*cw + (cw/months.length)*0.1;
+              // revenue bar
+              const rh = (revenue[i]/max)*ch;
+              g.fillStyle = '#0f766e';
+              g.fillRect(x, pad.t+ch-rh, bw, rh);
+              // expense bar
+              const eh = (expenses[i]/max)*ch;
+              g.fillStyle = '#f97316';
+              g.fillRect(x+bw+2, pad.t+ch-eh, bw, eh);
+              // label
+              g.fillStyle = textC; g.font = '9px system-ui';
+              g.fillText(m, x, H-8);
+            });
+            // legend
+            g.fillStyle='#0f766e'; g.fillRect(W-110,8,10,10);
+            g.fillStyle=textC; g.font='10px system-ui'; g.fillText('Revenue',W-97,17);
+            g.fillStyle='#f97316'; g.fillRect(W-110,22,10,10);
+            g.fillText('Expenses',W-97,31);
+          })();
+        <\/script>
+      </div>`;
+
+    case 'currency-demo': return `
+      <div class="demo-area">
+        <div class="demo-title">Currency Formatter — live preview</div>
+        <div class="redis-demo">
+          <div style="font-size:.75rem;color:var(--muted);margin-bottom:.4rem">
+            Enter an amount to format in multiple currencies
+          </div>
+          <div class="redis-cmd-row">
+            <input class="redis-input" id="cur-input-${skillId}" type="number"
+                   value="1500000" placeholder="Amount…" oninput="formatCurrency('${skillId}')" />
+          </div>
+          <div id="cur-out-${skillId}" style="display:flex;flex-direction:column;gap:.35rem;margin-top:.5rem"></div>
+        </div>
+      </div>`;
+
+    case 'rbac-demo': return `
+      <div class="demo-area">
+        <div class="demo-title">Role-Based Access Control — switch role to see UI changes</div>
+        <div style="display:flex;gap:.5rem;margin-bottom:.75rem;flex-wrap:wrap">
+          ${['admin','staff','viewer'].map(r => `
+            <button class="rbac-role-btn" data-role="${r}" data-skill="${skillId}"
+              onclick="setRole('${skillId}','${r}')"
+              style="border:2px solid var(--border);background:${r==='viewer'?'var(--accent)':'none'};
+                     color:${r==='viewer'?'#fff':'var(--muted)'};border-radius:6px;
+                     padding:.25rem .7rem;font-size:.78rem;font-weight:700;cursor:pointer">
+              ${r.charAt(0).toUpperCase()+r.slice(1)}
+            </button>
+          `).join('')}
+        </div>
+        <div id="rbac-ui-${skillId}">
+          ${rbacUi('viewer')}
+        </div>
+      </div>`;
+
     default: return '';
   }
 }
@@ -1534,6 +1935,14 @@ function navigate(id) {
 
   activeSection = id;
   updateProgress();
+  // draw canvas charts if this section has them
+  requestAnimationFrame(drawCanvasCharts);
+  // init currency demo if present
+  const curIn = document.querySelector(`#cur-input-${id}-charts`) ??
+                document.getElementById(`cur-input-charts`);
+  document.querySelectorAll('[id^="cur-input-"]').forEach(el => {
+    formatCurrency(el.id.replace('cur-input-', ''));
+  });
 
   // close sidebar on mobile
   if (window.innerWidth <= 768) {
@@ -1548,7 +1957,7 @@ function buildNav() {
     { header: null, items: [CATEGORIES.find(c => c.isDashboard)] },
     { header: 'Core Skills', items: CATEGORIES.filter(c => ['frontend','backend','databases'].includes(c.id)) },
     { header: 'Engineering', items: CATEGORIES.filter(c => ['devops','security','testing','system-design'].includes(c.id)) },
-    { header: 'Practice', items: CATEGORIES.filter(c => c.id === 'projects') },
+    { header: 'Practice', items: CATEGORIES.filter(c => ['projects','commerce'].includes(c.id)) },
   ];
 
   groups.forEach(({ header, items }) => {
@@ -1845,7 +2254,121 @@ $('modalOverlay')?.addEventListener('click', e => {
   if (e.target === e.currentTarget) closeModal();
 });
 
+/* ── Currency formatter demo ───────────────────────────────────── */
+window.formatCurrency = function(skillId) {
+  const raw = parseFloat($(`cur-input-${skillId}`)?.value ?? 0);
+  const out = $(`cur-out-${skillId}`);
+  if (!out || isNaN(raw)) return;
+  const locales = [
+    { code: 'vi-VN', currency: 'VND', label: '🇻🇳 VND' },
+    { code: 'en-US', currency: 'USD', label: '🇺🇸 USD' },
+    { code: 'en-GB', currency: 'GBP', label: '🇬🇧 GBP' },
+    { code: 'ja-JP', currency: 'JPY', label: '🇯🇵 JPY' },
+  ];
+  out.innerHTML = locales.map(({ code, currency, label }) => {
+    const fmt = new Intl.NumberFormat(code, { style: 'currency', currency }).format(raw);
+    return `<div style="display:flex;justify-content:space-between;font-size:.82rem;
+                         padding:.25rem .1rem;border-bottom:1px solid var(--border)">
+              <span style="color:var(--muted)">${label}</span>
+              <span style="font-family:monospace;font-weight:700">${esc(fmt)}</span>
+            </div>`;
+  }).join('');
+};
+
+/* ── RBAC demo ─────────────────────────────────────────────────── */
+const RBAC_PERMS = {
+  admin:  { canViewRevenue: true,  canEditProducts: true,  canDeleteOrders: true,  canManageUsers: true  },
+  staff:  { canViewRevenue: false, canEditProducts: true,  canDeleteOrders: false, canManageUsers: false },
+  viewer: { canViewRevenue: false, canEditProducts: false, canDeleteOrders: false, canManageUsers: false },
+};
+
+function rbacUi(role) {
+  const p = RBAC_PERMS[role];
+  const item = (allowed, label) => `
+    <div style="display:flex;align-items:center;gap:.5rem;font-size:.82rem;padding:.25rem 0">
+      <span style="color:${allowed ? 'var(--success)' : 'var(--danger)'}">${allowed ? '✓' : '✗'}</span>
+      <span style="color:${allowed ? 'var(--text)' : 'var(--muted)'};
+                   text-decoration:${allowed ? 'none' : 'line-through'}">${label}</span>
+    </div>`;
+  return `
+    <div style="background:var(--bg);border-radius:6px;padding:.6rem .8rem">
+      <div style="font-size:.75rem;font-weight:700;color:var(--muted);margin-bottom:.4rem">
+        Permissions for: <span style="color:var(--accent)">${role}</span>
+      </div>
+      ${item(p.canViewRevenue,   'View revenue & financial reports')}
+      ${item(p.canEditProducts,  'Add / edit products')}
+      ${item(p.canDeleteOrders,  'Delete orders')}
+      ${item(p.canManageUsers,   'Manage user accounts')}
+    </div>`;
+}
+
+window.setRole = function(skillId, role) {
+  const ui = $(`rbac-ui-${skillId}`);
+  if (ui) ui.innerHTML = rbacUi(role);
+  // update button styles
+  document.querySelectorAll(`.rbac-role-btn[data-skill="${skillId}"]`).forEach(btn => {
+    const active = btn.dataset.role === role;
+    btn.style.background = active ? 'var(--accent)' : 'none';
+    btn.style.color = active ? '#fff' : 'var(--muted)';
+    btn.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
+  });
+};
+
+/* ── Draw canvas charts after section becomes visible ───────────── */
+function drawCanvasCharts() {
+  document.querySelectorAll('canvas[id^="chart-"]').forEach(ctx => {
+    if (ctx._chartInit) return;
+    ctx._chartInit = true;
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const grid  = dark ? '#334155' : '#e2e8f0';
+    const textC = dark ? '#94a3b8' : '#64748b';
+    const months   = ['Oct','Nov','Dec','Jan','Feb','Mar'];
+    const revenue  = [42, 58, 95, 67, 80, 74];
+    const expenses = [30, 41, 60, 50, 55, 48];
+    const W = ctx.parentElement.offsetWidth - 32 || 320, H = 180;
+    ctx.width = W; ctx.height = H;
+    const g = ctx.getContext('2d');
+    const pad = { t:10, r:110, b:30, l:45 };
+    const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
+    const max = 120;
+
+    // horizontal grid
+    [0, 30, 60, 90, 120].forEach(v => {
+      const y = pad.t + ch - (v / max) * ch;
+      g.strokeStyle = grid; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(pad.l, y); g.lineTo(pad.l + cw, y); g.stroke();
+      g.fillStyle = textC; g.font = '10px system-ui';
+      g.textAlign = 'right'; g.fillText(v + 'M', pad.l - 4, y + 4);
+    });
+
+    // bars
+    const slotW = cw / months.length;
+    const bw = slotW * 0.32;
+    months.forEach((m, i) => {
+      const x = pad.l + i * slotW + slotW * 0.1;
+      const rh = (revenue[i] / max) * ch;
+      g.fillStyle = '#0f766e88';
+      g.fillRect(x, pad.t + ch - rh, bw, rh);
+      const eh = (expenses[i] / max) * ch;
+      g.fillStyle = '#f9731688';
+      g.fillRect(x + bw + 2, pad.t + ch - eh, bw, eh);
+      g.fillStyle = textC; g.font = '9px system-ui';
+      g.textAlign = 'center';
+      g.fillText(m, x + bw, H - 6);
+    });
+
+    // legend
+    const lx = W - 100, ly = 14;
+    g.fillStyle = '#0f766e'; g.fillRect(lx, ly, 10, 10);
+    g.fillStyle = textC; g.font = '10px system-ui'; g.textAlign = 'left';
+    g.fillText('Revenue', lx + 14, ly + 9);
+    g.fillStyle = '#f97316'; g.fillRect(lx, ly + 16, 10, 10);
+    g.fillText('Expenses', lx + 14, ly + 25);
+  });
+}
+
 /* ── Init ──────────────────────────────────────────────────────── */
 buildNav();
 renderAll();
 updateProgress();
+requestAnimationFrame(drawCanvasCharts);

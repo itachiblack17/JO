@@ -1113,13 +1113,13 @@ spec:
 
   /* ── 9. COMMERCE & FINANCE ────────────────── */
   {
-    id: 'commerce', label: 'Commerce & Finance', icon: '💳',
+    id: 'commerce', label: 'Purchase & Finance', icon: '🏢',
     color: '#0f766e', dotClass: 'dot-commerce',
-    desc: 'Build shopping dashboards, carts, payments, and financial reporting.',
+    desc: 'Theo dõi đơn mua hàng công ty, ngân sách, nhà cung cấp và báo cáo tài chính.',
     skills: [
       {
         id: 'tanstack-query', title: 'TanStack Query (React Query)',
-        desc: 'Server-state management: automatic caching, background refetch, optimistic updates, and pagination — eliminates most useEffect data-fetching code.',
+        desc: 'Quản lý server state: caching tự động, background refetch, optimistic updates — dùng để fetch danh sách đơn mua hàng, ngân sách, báo cáo realtime.',
         lang: 'jsx',
         code:
 `import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -1236,58 +1236,132 @@ function AddProductForm({ onSubmit }) {
         demo: 'canvas-chart',
       },
       {
-        id: 'payment', title: 'Payment Integration (Stripe + VNPay)',
-        desc: 'Stripe for international cards; VNPay/MoMo for Vietnamese market. Always handle payments server-side — never trust client amounts.',
+        id: 'purchase-order', title: 'Purchase Order Workflow',
+        desc: 'Thiết kế luồng PO: tạo yêu cầu → phê duyệt theo cấp → gửi nhà cung cấp → nhận hàng → đối soát hóa đơn. Lưu audit trail đầy đủ.',
         lang: 'js',
         code:
-`// ── Stripe (server-side) ──────────────────────
-import Stripe from 'stripe';
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+`// Purchase Order state machine
+const PO_STATES = {
+  DRAFT:     { next: ['PENDING_APPROVAL'] },
+  PENDING_APPROVAL: { next: ['APPROVED', 'REJECTED'] },
+  APPROVED:  { next: ['ORDERED', 'CANCELLED'] },
+  ORDERED:   { next: ['PARTIALLY_RECEIVED', 'RECEIVED'] },
+  PARTIALLY_RECEIVED: { next: ['RECEIVED'] },
+  RECEIVED:  { next: ['INVOICED'] },
+  INVOICED:  { next: ['PAID'] },
+  PAID:      { next: [] },
+  REJECTED:  { next: ['DRAFT'] },
+  CANCELLED: { next: [] },
+};
 
-// Create payment intent
-app.post('/api/checkout', async (req, res) => {
-  const { items } = req.body;
-  const amount = await calculateOrderTotal(items); // server-side!
+// Auto-approval by amount threshold
+async function submitForApproval(poId, requesterId) {
+  const po = await db.purchaseOrders.findById(poId);
 
-  const intent = await stripe.paymentIntents.create({
-    amount: Math.round(amount * 100), // cents
-    currency: 'usd',
-    metadata: { userId: req.user.sub },
+  // Under 5M VND → auto-approve by department head
+  // 5M–50M VND  → requires manager
+  // Over 50M VND → requires director
+  const approver =
+    po.totalAmount < 5_000_000  ? 'dept_head' :
+    po.totalAmount < 50_000_000 ? 'manager'   : 'director';
+
+  await db.purchaseOrders.update(poId, {
+    status: 'PENDING_APPROVAL',
+    approverRole: approver,
+    submittedAt: new Date(),
+    submittedBy: requesterId,
   });
-  res.json({ clientSecret: intent.client_secret });
-});
 
-// Webhook — confirm payment after Stripe event
-app.post('/webhooks/stripe',
-  express.raw({ type: 'application/json' }),
-  async (req, res) => {
-    const event = stripe.webhooks.constructEvent(
-      req.body, req.headers['stripe-signature'], process.env.WEBHOOK_SECRET
-    );
-    if (event.type === 'payment_intent.succeeded') {
-      await fulfillOrder(event.data.object.metadata.userId);
-    }
-    res.json({ received: true });
-  }
-);
+  await notifyApprover(approver, po);
+}
 
-// ── VNPay (server-side hash) ──────────────────
-import crypto from 'crypto';
-function buildVnpayUrl({ amount, orderId, ipAddr }) {
-  const params = new URLSearchParams({
-    vnp_Version: '2.1.0', vnp_Command: 'pay',
-    vnp_TmnCode: process.env.VNPAY_TMN_CODE,
-    vnp_Amount: amount * 100,
-    vnp_TxnRef: orderId,
-    vnp_ReturnUrl: 'https://myshop.vn/payment/result',
-    vnp_IpAddr: ipAddr,
-    vnp_CreateDate: dateFormat(new Date()),
+// 3-way match: PO ↔ Goods Receipt ↔ Invoice
+async function threeWayMatch(poId) {
+  const [po, receipts, invoice] = await Promise.all([
+    db.purchaseOrders.findById(poId),
+    db.goodsReceipts.findByPoId(poId),
+    db.invoices.findByPoId(poId),
+  ]);
+  const receivedQty = receipts.reduce((s, r) => s + r.qty, 0);
+  const matched = receivedQty === po.qty && invoice.amount === po.totalAmount;
+  return { matched, receivedQty, invoiceAmount: invoice.amount };
+}`,
+        demo: 'po-flow',
+      },
+      {
+        id: 'budget-tracking', title: 'Budget & Spending Tracker',
+        desc: 'Phân bổ ngân sách theo phòng ban và danh mục, theo dõi chi tiêu thực tế vs kế hoạch, cảnh báo khi vượt ngưỡng.',
+        lang: 'sql',
+        code:
+`-- Budget vs Actual by department & category
+SELECT
+  b.department,
+  b.category,
+  b.allocated_amount,
+  COALESCE(SUM(po.total_amount), 0)       AS spent,
+  b.allocated_amount
+    - COALESCE(SUM(po.total_amount), 0)   AS remaining,
+  ROUND(
+    COALESCE(SUM(po.total_amount), 0)
+    / b.allocated_amount * 100, 1
+  )                                        AS pct_used
+FROM budgets b
+LEFT JOIN purchase_orders po
+  ON  po.department = b.department
+  AND po.category   = b.category
+  AND po.status     NOT IN ('DRAFT','REJECTED','CANCELLED')
+  AND DATE_TRUNC('month', po.created_at) = DATE_TRUNC('month', NOW())
+WHERE b.period = DATE_TRUNC('month', NOW())
+GROUP BY b.department, b.category, b.allocated_amount
+ORDER BY pct_used DESC;
+
+-- Alert: departments over 80% budget used
+SELECT department, pct_used
+FROM budget_summary_view
+WHERE pct_used >= 80
+ORDER BY pct_used DESC;`,
+        demo: 'budget-demo',
+      },
+      {
+        id: 'vendor-mgmt', title: 'Vendor Management',
+        desc: 'Quản lý danh sách nhà cung cấp, đánh giá hiệu suất (on-time delivery, quality), lịch sử giao dịch, và hợp đồng hết hạn.',
+        lang: 'js',
+        code:
+`// Vendor scorecard — tính điểm đánh giá nhà cung cấp
+async function calcVendorScore(vendorId, period = 90) {
+  const since = subDays(new Date(), period);
+  const orders = await db.purchaseOrders.findAll({
+    vendorId, status: 'RECEIVED',
+    createdAt: { gte: since },
   });
-  params.sort();
-  const signed = crypto.createHmac('sha512', process.env.VNPAY_HASH_SECRET)
-    .update(params.toString()).digest('hex');
-  params.set('vnp_SecureHash', signed);
-  return \`https://sandbox.vnpayment.vn/paymentv2/vpcpay.html?\${params}\`;
+
+  if (!orders.length) return null;
+
+  // On-time delivery rate
+  const onTime = orders.filter(o =>
+    new Date(o.receivedAt) <= new Date(o.expectedAt)
+  ).length;
+  const deliveryScore = (onTime / orders.length) * 100;
+
+  // Quality score (from inspection reports)
+  const avgQuality = orders.reduce((s, o) => s + (o.qualityScore ?? 80), 0)
+                     / orders.length;
+
+  // Price competitiveness (vs market avg)
+  const priceScore = await comparePriceToMarket(vendorId);
+
+  // Weighted total
+  const total = deliveryScore * 0.4 + avgQuality * 0.4 + priceScore * 0.2;
+
+  return {
+    vendorId,
+    deliveryScore: Math.round(deliveryScore),
+    qualityScore:  Math.round(avgQuality),
+    priceScore:    Math.round(priceScore),
+    totalScore:    Math.round(total),
+    grade: total >= 85 ? 'A' : total >= 70 ? 'B' : total >= 55 ? 'C' : 'D',
+    ordersAnalyzed: orders.length,
+  };
 }`,
       },
       {
@@ -1378,46 +1452,350 @@ function exportTransactionsXlsx(transactions) {
         demo: 'rbac-demo',
       },
       {
-        id: 'optimistic-ui', title: 'Optimistic UI & UX Patterns',
-        desc: 'Update UI instantly on user action, then confirm with the server. Roll back on error. Combine with skeleton loaders and toast notifications.',
-        lang: 'jsx',
+        id: 'spend-analytics', title: 'Spend Analytics & Reporting',
+        desc: 'Phân tích chi tiêu theo thời gian, danh mục, phòng ban. Tạo báo cáo tổng hợp tháng/quý/năm, so sánh kỳ trước và dự báo.',
+        lang: 'sql',
         code:
-`// Optimistic cart add — instant feedback
-function useAddToCart() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (item) => api.post('/cart', item),
-    onMutate: async (item) => {
-      await qc.cancelQueries({ queryKey: ['cart'] });
-      const prev = qc.getQueryData(['cart']);
-      // Optimistically add item
-      qc.setQueryData(['cart'], old => ({
-        ...old,
-        items: [...(old?.items ?? []), { ...item, _optimistic: true }],
-        total: (old?.total ?? 0) + item.price * item.qty,
-      }));
-      toast.success('Added to cart!');
-      return { prev };
-    },
-    onError: (_err, _item, ctx) => {
-      qc.setQueryData(['cart'], ctx.prev);
-      toast.error('Failed to add item. Please try again.');
-    },
-    onSettled: () => qc.invalidateQueries({ queryKey: ['cart'] }),
+`-- Monthly spend summary with YoY comparison
+WITH monthly AS (
+  SELECT
+    DATE_TRUNC('month', created_at) AS month,
+    category,
+    department,
+    SUM(total_amount) AS total
+  FROM purchase_orders
+  WHERE status = 'PAID'
+  GROUP BY 1, 2, 3
+),
+yoy AS (
+  SELECT
+    m1.month, m1.category, m1.department,
+    m1.total AS current_period,
+    m2.total AS prior_year,
+    ROUND((m1.total - m2.total) / NULLIF(m2.total, 0) * 100, 1) AS yoy_pct
+  FROM monthly m1
+  LEFT JOIN monthly m2
+    ON m2.month = m1.month - INTERVAL '1 year'
+    AND m2.category = m1.category
+    AND m2.department = m1.department
+)
+SELECT * FROM yoy
+ORDER BY month DESC, current_period DESC;
+
+-- Top 10 highest spend categories this quarter
+SELECT
+  category,
+  COUNT(*)           AS num_orders,
+  SUM(total_amount)  AS total_spend,
+  AVG(total_amount)  AS avg_order,
+  MAX(total_amount)  AS largest_order
+FROM purchase_orders
+WHERE status NOT IN ('DRAFT','REJECTED','CANCELLED')
+  AND created_at >= DATE_TRUNC('quarter', NOW())
+GROUP BY category
+ORDER BY total_spend DESC
+LIMIT 10;`,
+      },
+    ],
+  },
+
+  /* ── 10. EXCEL & DATA PROCESSING ─────────── */
+  {
+    id: 'excel', label: 'Excel & Data', icon: '📊',
+    color: '#217346', dotClass: 'dot-excel',
+    desc: 'Thành thạo Excel nâng cao và xử lý dữ liệu từ web app.',
+    skills: [
+      {
+        id: 'excel-formulas', title: 'Excel Formulas Nâng Cao',
+        desc: 'VLOOKUP/XLOOKUP, INDEX-MATCH, SUMIFS, COUNTIFS, IFERROR, dynamic arrays (FILTER, SORT, UNIQUE) — công thức nền tảng cho báo cáo tài chính.',
+        demo: 'excel-formula-demo',
+      },
+      {
+        id: 'excel-pivot', title: 'Pivot Table & Power Query',
+        desc: 'Pivot Table tổng hợp dữ liệu mua hàng theo nhiều chiều. Power Query (Get & Transform) để làm sạch và gộp nhiều file Excel/CSV tự động.',
+        lang: 'text',
+        code:
+`── Pivot Table: Chi tiêu theo Phòng ban × Danh mục ──────
+
+Rows:    Department (IT, HR, Operations, Marketing)
+Columns: Category   (Equipment, Services, Materials, Travel)
+Values:  SUM of Amount   → số tiền
+         COUNT of OrderID → số đơn
+
+── Power Query: Gộp 12 file báo cáo tháng ──────────────
+
+let
+  Source = Folder.Files("C:\\Reports\\2024"),
+  FilteredExcel = Table.SelectRows(Source,
+    each [Extension] = ".xlsx"),
+  AddedContent = Table.AddColumn(FilteredExcel,
+    "Data", each Excel.Workbook([Content])),
+  ExpandedData = Table.ExpandTableColumn(
+    AddedContent, "Data", {"Name","Data"}),
+  FilteredSheets = Table.SelectRows(ExpandedData,
+    each [Name] = "PurchaseData"),
+  Combined = Table.Combine(
+    FilteredSheets[Data])
+in
+  Combined`,
+      },
+      {
+        id: 'excel-vba', title: 'VBA & Macro Automation',
+        desc: 'Tự động hoá tác vụ lặp lại: gửi email từ Excel, tạo báo cáo PDF theo lịch, validate dữ liệu nhập, tô màu theo điều kiện phức tạp.',
+        lang: 'vba',
+        code:
+`' ── Tạo báo cáo PO hàng tháng tự động ──────────────────
+Sub GenerateMonthlyReport()
+    Dim wsData As Worksheet, wsReport As Worksheet
+    Dim lastRow As Long, i As Long
+    Dim totalSpend As Double, poCount As Long
+
+    Set wsData   = ThisWorkbook.Sheets("PurchaseOrders")
+    Set wsReport = ThisWorkbook.Sheets("MonthlyReport")
+
+    ' Xác định tháng hiện tại
+    Dim targetMonth As Integer
+    targetMonth = Month(Date)
+
+    lastRow = wsData.Cells(wsData.Rows.Count, 1).End(xlUp).Row
+    totalSpend = 0 : poCount = 0
+
+    ' Lọc và tổng hợp theo tháng
+    For i = 2 To lastRow
+        If Month(wsData.Cells(i, 3).Value) = targetMonth _
+           And wsData.Cells(i, 6).Value = "PAID" Then
+            totalSpend = totalSpend + wsData.Cells(i, 5).Value
+            poCount = poCount + 1
+        End If
+    Next i
+
+    ' Ghi kết quả vào sheet báo cáo
+    wsReport.Cells(2, 2).Value = poCount
+    wsReport.Cells(3, 2).Value = totalSpend
+    wsReport.Cells(4, 2).Value = totalSpend / poCount
+
+    ' Xuất PDF
+    wsReport.ExportAsFixedFormat Type:=xlTypePDF, _
+        Filename:="Report_" & Format(Date, "YYYY_MM") & ".pdf"
+
+    MsgBox "Báo cáo tháng " & targetMonth & " đã tạo xong!", vbInformation
+End Sub`,
+      },
+      {
+        id: 'sheetjs', title: 'SheetJS — Đọc/Ghi Excel từ Web',
+        desc: 'Import file Excel từ người dùng upload, xử lý dữ liệu, rồi export lại — không cần backend. Dùng cho form nhập liệu hàng loạt và báo cáo.',
+        lang: 'js',
+        code:
+`import * as XLSX from 'xlsx';
+
+// ── Import: đọc file Excel người dùng upload ──
+async function importPurchaseOrders(file) {
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: true });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+
+  const rows = XLSX.utils.sheet_to_json(ws, {
+    header: ['date','department','vendor','item','qty','unitPrice','total','status'],
+    range: 1,          // skip header row
+    defval: '',        // default for empty cells
   });
+
+  // Validate & transform
+  return rows
+    .filter(r => r.vendor && r.total > 0)
+    .map(r => ({
+      date:       new Date(r.date),
+      department: r.department.trim(),
+      vendor:     r.vendor.trim(),
+      item:       r.item,
+      qty:        Number(r.qty),
+      unitPrice:  Number(r.unitPrice),
+      total:      Number(r.total),
+      status:     r.status || 'DRAFT',
+    }));
 }
 
-// Skeleton loader while data is loading
-function ProductCard({ id }) {
-  const { data, isLoading } = useProduct(id);
-  if (isLoading) return (
-    <div className="skeleton-card">
-      <div className="skeleton h-40 w-full" />
-      <div className="skeleton h-4 w-3/4 mt-2" />
-      <div className="skeleton h-4 w-1/2 mt-1" />
+// ── Export: tạo file Excel có style ──────────
+function exportBudgetReport(data) {
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: raw data
+  const ws1 = XLSX.utils.json_to_sheet(data);
+
+  // Set column widths
+  ws1['!cols'] = [
+    { wch: 12 }, { wch: 16 }, { wch: 22 },
+    { wch: 30 }, { wch: 8  }, { wch: 14 }, { wch: 14 },
+  ];
+
+  // Sheet 2: summary pivot
+  const summary = summarizeByDept(data);
+  const ws2 = XLSX.utils.json_to_sheet(summary);
+
+  XLSX.utils.book_append_sheet(wb, ws1, 'Chi tiết');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Tổng hợp');
+  XLSX.writeFile(wb, \`BaoCaoMuaHang_\${format(new Date(),'yyyy_MM')}.xlsx\`);
+}`,
+      },
+      {
+        id: 'data-cleaning', title: 'Data Cleaning & Validation',
+        desc: 'Chuẩn hoá dữ liệu nhập từ nhiều nguồn: loại khoảng trắng thừa, chuẩn hoá tên nhà cung cấp, phát hiện trùng lặp, validate số tiền và ngày tháng.',
+        lang: 'js',
+        code:
+`// Pipeline làm sạch dữ liệu mua hàng từ Excel import
+function cleanPurchaseRow(raw) {
+  return {
+    // chuẩn hoá tên
+    vendor:     normalizeVendorName(raw.vendor),
+    department: raw.department?.trim().toUpperCase(),
+
+    // parse số tiền — chấp nhận "1.500.000" hoặc "1,500,000"
+    amount: parseVND(raw.amount),
+
+    // parse ngày — chấp nhận dd/MM/yyyy hoặc MM/dd/yyyy
+    date: parseFlexibleDate(raw.date),
+
+    // chuẩn hoá trạng thái
+    status: raw.status?.toUpperCase().replace(/\\s+/g, '_') ?? 'DRAFT',
+  };
+}
+
+function normalizeVendorName(name) {
+  if (!name) return '';
+  return name
+    .trim()
+    .replace(/\\s+/g, ' ')                    // nhiều space → 1 space
+    .replace(/\\bCO\\.?\\s*LTD\\.?$/i, 'Co. Ltd')  // chuẩn hoá hậu tố
+    .replace(/\\bCTY\\s*TNHH/i, 'Cty TNHH');
+}
+
+function parseVND(val) {
+  if (typeof val === 'number') return val;
+  return Number(String(val).replace(/[^0-9]/g, '')) || 0;
+}
+
+// Phát hiện đơn hàng trùng lặp
+function findDuplicates(rows) {
+  const seen = new Map();
+  return rows.filter(row => {
+    const key = \`\${row.vendor}|\${row.amount}|\${row.date}\`;
+    if (seen.has(key)) return true;
+    seen.set(key, true);
+    return false;
+  });
+}`,
+      },
+    ],
+  },
+
+  /* ── 11. UX / UI PATTERNS ─────────────────── */
+  {
+    id: 'uiux', label: 'UX/UI Patterns', icon: '🎨',
+    color: '#7c3aed', dotClass: 'dot-uiux',
+    desc: 'Các pattern UI/UX nổi tiếng dùng trong dashboard và ứng dụng doanh nghiệp.',
+    skills: [
+      {
+        id: 'dashboard-layout', title: 'Dashboard Layout Patterns',
+        desc: 'KPI card grid, sidebar navigation, breadcrumb, collapsible panels, và data-ink ratio — nguyên tắc thiết kế dashboard hiệu quả.',
+        demo: 'dashboard-pattern',
+      },
+      {
+        id: 'data-table-ux', title: 'Data Table UX',
+        desc: 'Sort, multi-filter, bulk actions, inline edit, row expand, frozen columns, virtual scroll — các pattern cho bảng dữ liệu doanh nghiệp.',
+        demo: 'table-pattern',
+      },
+      {
+        id: 'form-ux', title: 'Form UX Patterns',
+        desc: 'Multi-step wizard, inline validation, auto-save draft, dependent fields, smart defaults — thiết kế form ít lỗi nhập liệu nhất.',
+        lang: 'jsx',
+        code:
+`// Multi-step form với progress indicator
+function PurchaseRequestWizard() {
+  const [step, setStep] = useState(0);
+  const steps = ['Thông tin chung', 'Chi tiết hàng hóa', 'Phê duyệt & Gửi'];
+
+  return (
+    <div>
+      {/* Progress stepper */}
+      <div className="stepper">
+        {steps.map((label, i) => (
+          <div key={i} className={\`step \${i <= step ? 'active' : ''}\`}>
+            <div className="step-dot">{i < step ? '✓' : i + 1}</div>
+            <div className="step-label">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Step content */}
+      {step === 0 && <StepBasicInfo onNext={() => setStep(1)} />}
+      {step === 1 && <StepItemDetail onBack={() => setStep(0)} onNext={() => setStep(2)} />}
+      {step === 2 && <StepReview onBack={() => setStep(1)} onSubmit={submitPO} />}
     </div>
   );
-  return <RealProductCard product={data} />;
+}
+
+// Auto-save draft mỗi 30 giây
+useEffect(() => {
+  const id = setInterval(() => {
+    saveDraft(formValues);
+    showToast('Đã lưu nháp tự động', 'info');
+  }, 30_000);
+  return () => clearInterval(id);
+}, [formValues]);`,
+      },
+      {
+        id: 'feedback-states', title: 'Feedback & Loading States',
+        desc: 'Skeleton loader, toast notification, progress indicator, empty state, error boundary — không để user bao giờ tự hỏi "app đang làm gì?".',
+        demo: 'feedback-demo',
+      },
+      {
+        id: 'design-tokens', title: 'Design Tokens & Component System',
+        desc: 'Xây dựng design system với CSS variables (tokens), consistent spacing scale, typography ramp, và colour with accessibility contrast ratio.',
+        lang: 'css',
+        code:
+`/* ── Design Tokens ── */
+:root {
+  /* Spacing scale (4px base) */
+  --space-1: 4px;   --space-2: 8px;
+  --space-3: 12px;  --space-4: 16px;
+  --space-6: 24px;  --space-8: 32px;
+  --space-12: 48px; --space-16: 64px;
+
+  /* Typography scale */
+  --text-xs: .75rem;   --text-sm: .875rem;
+  --text-base: 1rem;   --text-lg: 1.125rem;
+  --text-xl: 1.25rem;  --text-2xl: 1.5rem;
+  --text-3xl: 1.875rem;
+
+  /* Brand colours */
+  --color-primary-50:  #eff6ff;
+  --color-primary-500: #3b82f6;
+  --color-primary-900: #1e3a8a;
+
+  /* Semantic colours */
+  --color-success: #059669;
+  --color-warning: #d97706;
+  --color-danger:  #dc2626;
+  --color-info:    #0891b2;
+
+  /* Elevation (box shadows) */
+  --shadow-sm:  0 1px 2px rgba(0,0,0,.05);
+  --shadow-md:  0 4px 6px rgba(0,0,0,.07);
+  --shadow-lg:  0 10px 15px rgba(0,0,0,.10);
+  --shadow-xl:  0 20px 25px rgba(0,0,0,.15);
+
+  /* Border radius scale */
+  --radius-sm: 4px; --radius-md: 8px;
+  --radius-lg: 12px; --radius-full: 9999px;
+}
+
+/* Component using tokens */
+.btn-primary {
+  background: var(--color-primary-500);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-sm);
 }`,
       },
     ],
@@ -1726,6 +2104,164 @@ function demoHtml(type, skillId) {
         </div>
       </div>`;
 
+    case 'po-flow': return `
+      <div class="demo-area">
+        <div class="demo-title">Purchase Order — Luồng Trạng Thái</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center">
+          ${[
+            ['DRAFT','#64748b'],['PENDING_APPROVAL','#d97706'],
+            ['APPROVED','#2563eb'],['ORDERED','#7c3aed'],
+            ['RECEIVED','#0891b2'],['INVOICED','#dc2626'],['PAID','#059669'],
+          ].map(([s,c],i,arr) => `
+            <span style="background:${c}22;color:${c};border:1px solid ${c}55;
+                          border-radius:6px;padding:.2rem .55rem;font-size:.72rem;font-weight:700">
+              ${s.replace(/_/g,' ')}
+            </span>
+            ${i < arr.length-1 ? `<span style="color:var(--muted);font-size:.8rem">→</span>` : ''}
+          `).join('')}
+        </div>
+        <div style="font-size:.75rem;color:var(--muted);margin-top:.6rem">
+          Quy tắc phê duyệt: &lt;5M → Trưởng phòng &nbsp;|&nbsp; 5–50M → Quản lý &nbsp;|&nbsp; &gt;50M → Giám đốc
+        </div>
+      </div>`;
+
+    case 'budget-demo': return `
+      <div class="demo-area">
+        <div class="demo-title">Ngân sách vs Chi tiêu thực tế — Tháng 3/2026</div>
+        <div style="display:flex;flex-direction:column;gap:.5rem">
+          ${[
+            ['IT Equipment',    42000000, 38500000, '#2563eb'],
+            ['Office Supplies',  8000000,  5200000, '#0891b2'],
+            ['Marketing',       25000000, 23800000, '#d97706'],
+            ['Training',        12000000,  4100000, '#059669'],
+            ['Travel',          15000000, 16200000, '#dc2626'],
+          ].map(([dept, budget, spent, color]) => {
+            const pct = Math.min(Math.round(spent/budget*100), 100);
+            const over = spent > budget;
+            return `
+              <div>
+                <div style="display:flex;justify-content:space-between;font-size:.75rem;margin-bottom:.2rem">
+                  <span>${dept}</span>
+                  <span style="color:${over?'#dc2626':'var(--muted)'}">
+                    ${(spent/1e6).toFixed(1)}M / ${(budget/1e6).toFixed(0)}M VND
+                    ${over ? ' ⚠️ Vượt ngân sách' : `(${pct}%)`}
+                  </span>
+                </div>
+                <div style="height:6px;background:var(--border);border-radius:99px;overflow:hidden">
+                  <div style="width:${pct}%;height:100%;background:${over?'#dc2626':color};border-radius:99px"></div>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+
+    case 'excel-formula-demo': return `
+      <div class="demo-area">
+        <div class="demo-title">Excel Formula Cheat Sheet</div>
+        <div style="display:flex;flex-direction:column;gap:.35rem">
+          ${[
+            ['XLOOKUP', '=XLOOKUP(A2,VendorList!A:A,VendorList!B:B,"Không tìm thấy")', 'Tìm nhà cung cấp theo mã'],
+            ['SUMIFS',  '=SUMIFS(Amount,Dept,C2,Month,D2,Status,"PAID")',                'Tổng chi tiêu lọc nhiều điều kiện'],
+            ['FILTER',  '=FILTER(A2:E100,E2:E100="PENDING_APPROVAL")',                   'Dynamic array lọc PO chờ duyệt'],
+            ['UNIQUE',  '=UNIQUE(FILTER(Vendor,Dept=F1))',                               'Danh sách nhà cung cấp duy nhất theo phòng'],
+            ['IFS',     '=IFS(G2<5e6,"Trưởng phòng",G2<5e7,"Quản lý",TRUE,"Giám đốc")', 'Phân cấp duyệt theo số tiền'],
+          ].map(([fn, formula, desc]) => `
+            <div style="border:1px solid var(--border);border-radius:6px;padding:.4rem .6rem">
+              <div style="display:flex;gap:.5rem;align-items:baseline">
+                <span style="background:#217346;color:#fff;border-radius:4px;padding:.1rem .4rem;
+                              font-size:.68rem;font-weight:800;flex-shrink:0">${fn}</span>
+                <code style="font-size:.72rem;color:var(--text);word-break:break-all">${esc(formula)}</code>
+              </div>
+              <div style="font-size:.72rem;color:var(--muted);margin-top:.2rem">${esc(desc)}</div>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+
+    case 'dashboard-pattern': return `
+      <div class="demo-area">
+        <div class="demo-title">Dashboard Layout — KPI + Chart + Table</div>
+        <div style="display:flex;flex-direction:column;gap:.5rem">
+          <!-- KPI row -->
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:.4rem">
+            ${[
+              ['Tổng PO tháng','47 đơn','#2563eb','+12% so tháng trước'],
+              ['Tổng chi tiêu','842M VND','#0f766e','+5%'],
+              ['Chờ phê duyệt','8 đơn','#d97706','Cần xử lý hôm nay'],
+              ['Nhà cung cấp','23 NCC','#7c3aed','Active'],
+            ].map(([label,val,c,sub]) => `
+              <div style="background:${c}11;border:1px solid ${c}33;border-radius:6px;padding:.5rem">
+                <div style="font-size:.65rem;color:var(--muted)">${label}</div>
+                <div style="font-size:1rem;font-weight:800;color:${c}">${val}</div>
+                <div style="font-size:.62rem;color:var(--muted)">${sub}</div>
+              </div>
+            `).join('')}
+          </div>
+          <!-- fake chart placeholder -->
+          <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;
+                       height:60px;display:flex;align-items:center;justify-content:center;
+                       font-size:.75rem;color:var(--muted)">
+            📊 Biểu đồ chi tiêu 6 tháng (Bar chart)
+          </div>
+          <!-- fake table -->
+          <div style="font-size:.72rem;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+            <div style="background:var(--border);display:grid;grid-template-columns:2fr 1fr 1fr 1fr;
+                         padding:.3rem .6rem;font-weight:700">
+              <span>Nhà cung cấp</span><span>Số đơn</span><span>Tổng tiền</span><span>Trạng thái</span>
+            </div>
+            ${[['Công ty ABC','5','120M VND','✓ Tốt'],['XYZ Ltd','3','85M VND','⚠ Trễ hàng'],
+               ['Thiết bị DEF','4','67M VND','✓ Tốt']].map(([v,n,t,s])=>`
+              <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;
+                           padding:.3rem .6rem;border-top:1px solid var(--border)">
+                <span>${v}</span><span>${n}</span><span>${t}</span><span>${s}</span>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>`;
+
+    case 'table-pattern': return `
+      <div class="demo-area">
+        <div class="demo-title">Data Table UX Patterns</div>
+        <div style="display:flex;flex-direction:column;gap:.4rem">
+          ${[
+            ['🔃 Sortable columns','Click header để sort ASC/DESC, giữ Shift để multi-sort'],
+            ['🔍 Column filter','Filter riêng từng cột: text search, date range, checkbox multi-select'],
+            ['☑️ Bulk actions','Chọn nhiều row → Delete / Approve / Export hàng loạt'],
+            ['✏️ Inline edit','Double-click cell để edit trực tiếp, Enter để save, Esc để huỷ'],
+            ['📌 Frozen columns','Fix cột ID + Tên khi scroll ngang bảng rộng'],
+            ['🔽 Row expand','Click mũi tên để xem chi tiết PO items inline'],
+            ['📄 Pagination','Server-side pagination + page size selector + nhảy đến trang'],
+          ].map(([p,d]) => `
+            <div style="display:flex;gap:.6rem;align-items:flex-start;font-size:.78rem">
+              <span style="flex-shrink:0">${p.split(' ')[0]}</span>
+              <div>
+                <strong>${p.slice(p.indexOf(' ')+1)}</strong>
+                <span style="color:var(--muted)"> — ${d}</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>`;
+
+    case 'feedback-demo': return `
+      <div class="demo-area">
+        <div class="demo-title">Feedback States — click để xem</div>
+        <div style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.75rem">
+          ${['loading','success','error','empty','skeleton'].map(s => `
+            <button onclick="showFeedback('${skillId}','${s}')"
+              style="border:1px solid var(--border);background:none;border-radius:6px;
+                     padding:.25rem .65rem;font-size:.78rem;cursor:pointer;color:var(--text)">
+              ${s}
+            </button>
+          `).join('')}
+        </div>
+        <div id="feedback-preview-${skillId}" style="min-height:60px;display:flex;
+              align-items:center;justify-content:center;background:var(--bg);
+              border-radius:6px;border:1px solid var(--border);padding:.75rem;font-size:.82rem;color:var(--muted)">
+          ← Click một trạng thái để xem preview
+        </div>
+      </div>`;
+
     case 'canvas-chart': return `
       <div class="demo-area">
         <div class="demo-title">Revenue vs Expenses — Last 6 Months</div>
@@ -1957,7 +2493,8 @@ function buildNav() {
     { header: null, items: [CATEGORIES.find(c => c.isDashboard)] },
     { header: 'Core Skills', items: CATEGORIES.filter(c => ['frontend','backend','databases'].includes(c.id)) },
     { header: 'Engineering', items: CATEGORIES.filter(c => ['devops','security','testing','system-design'].includes(c.id)) },
-    { header: 'Practice', items: CATEGORIES.filter(c => ['projects','commerce'].includes(c.id)) },
+    { header: 'Business', items: CATEGORIES.filter(c => ['commerce','excel','uiux'].includes(c.id)) },
+    { header: 'Practice', items: CATEGORIES.filter(c => c.id === 'projects') },
   ];
 
   groups.forEach(({ header, items }) => {
@@ -2312,6 +2849,52 @@ window.setRole = function(skillId, role) {
     btn.style.color = active ? '#fff' : 'var(--muted)';
     btn.style.borderColor = active ? 'var(--accent)' : 'var(--border)';
   });
+};
+
+/* ── Feedback state demo ───────────────────────────────────────── */
+window.showFeedback = function(skillId, state) {
+  const el = document.getElementById(`feedback-preview-${skillId}`);
+  if (!el) return;
+  const templates = {
+    loading: `<div style="display:flex;flex-direction:column;align-items:center;gap:.5rem">
+        <div style="width:28px;height:28px;border:3px solid var(--border);
+                     border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite"></div>
+        <span>Đang tải dữ liệu…</span>
+      </div>`,
+    success: `<div style="display:flex;align-items:center;gap:.6rem;
+                             background:#05966918;color:#059669;padding:.5rem .8rem;border-radius:8px">
+        <span style="font-size:1.1rem">✓</span>
+        <span><strong>Đơn hàng đã được phê duyệt!</strong> Nhà cung cấp sẽ được thông báo.</span>
+      </div>`,
+    error: `<div style="display:flex;align-items:center;gap:.6rem;
+                          background:#dc262618;color:#dc2626;padding:.5rem .8rem;border-radius:8px">
+        <span style="font-size:1.1rem">⚠</span>
+        <div><strong>Không thể lưu thay đổi.</strong><br>
+          <span style="font-size:.78rem">Vui lòng kiểm tra kết nối và thử lại.</span></div>
+      </div>`,
+    empty: `<div style="display:flex;flex-direction:column;align-items:center;gap:.4rem;
+                          padding:1rem;color:var(--muted);text-align:center">
+        <span style="font-size:2rem">📭</span>
+        <strong>Không có đơn hàng nào</strong>
+        <span style="font-size:.8rem">Thay đổi bộ lọc hoặc tạo đơn hàng mới.</span>
+        <button style="background:var(--accent);color:#fff;border:none;border-radius:6px;
+                         padding:.3rem .8rem;font-size:.78rem;cursor:pointer;margin-top:.3rem">
+          + Tạo đơn hàng
+        </button>
+      </div>`,
+    skeleton: `<div style="display:flex;flex-direction:column;gap:.4rem;width:100%">
+        ${[1,2,3].map(() => `
+          <div style="display:grid;grid-template-columns:1fr 2fr 1fr;gap:.5rem">
+            <div style="height:12px;background:var(--border);border-radius:4px;
+                          animation:pulse 1.5s ease-in-out infinite"></div>
+            <div style="height:12px;background:var(--border);border-radius:4px;
+                          animation:pulse 1.5s ease-in-out infinite"></div>
+            <div style="height:12px;background:var(--border);border-radius:4px;
+                          animation:pulse 1.5s ease-in-out infinite"></div>
+          </div>`).join('')}
+      </div>`,
+  };
+  el.innerHTML = templates[state] ?? '';
 };
 
 /* ── Draw canvas charts after section becomes visible ───────────── */

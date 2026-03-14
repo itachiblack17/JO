@@ -212,6 +212,8 @@ body {
 .dot-system    { color: var(--c-system); }
 .dot-projects  { color: var(--c-projects); }
 .dot-commerce  { color: #0f766e; }
+.dot-excel     { color: #217346; }
+.dot-uiux      { color: #7c3aed; }
 
 /* ---------- Main Content ---------- */
 .main {
@@ -807,6 +809,15 @@ h2.section-h2 {
 strong { font-weight: 700; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
+
+/* ---------- Animations ---------- */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .4; }
+}
 
 /* ---------- Footer ---------- */
 .site-footer {
